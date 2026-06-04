@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #0b1120;
+  color: #e2e8f0;
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Thin, dark scrollbars to match the management-sim feel. */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 6px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+input[type='range'] {
+  accent-color: #3b82f6;
+}
