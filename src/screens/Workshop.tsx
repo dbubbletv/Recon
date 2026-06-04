@@ -1,6 +1,9 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { useGame } from '../store/gameStore';
 import { Badge, Button, Card, EmptyState, ProgressBar } from '../components/ui';
+
+// The 3D floor pulls in three.js, so it's code-split and only loaded on demand.
+const Floor = lazy(() => import('../scene/Workshop3D').then((m) => ({ default: m.Floor })));
 import { gbp, hoursToDeadline } from '../game/util';
 import { describeLine } from '../game/describe';
 import { MATERIALS_BY_ID } from '../data/materials';
@@ -21,6 +24,46 @@ import type { Order } from '../game/types';
 // top up any missing stock, and watch jobs progress to completion.
 
 export function Workshop() {
+  const [view, setView] = useState<'list' | '3d'>('list');
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="text-sm text-slate-400">
+          {view === '3d' ? 'Live 3D floor — click an idle bench to start the next ready order.' : 'Assign orders to stations to start building.'}
+        </div>
+        <div className="flex overflow-hidden rounded-lg border border-slate-700">
+          {(['list', '3d'] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={`px-3 py-1 text-sm font-medium transition-colors ${
+                view === v ? 'bg-brand-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              {v === 'list' ? '☰ List' : '🏭 3D Floor'}
+            </button>
+          ))}
+        </div>
+      </div>
+      {view === '3d' ? (
+        <Suspense
+          fallback={
+            <div className="flex h-[calc(100vh-110px)] items-center justify-center rounded-xl border border-slate-800 bg-slate-950 text-sm text-slate-400">
+              Loading the workshop floor…
+            </div>
+          }
+        >
+          <Floor />
+        </Suspense>
+      ) : (
+        <WorkshopList />
+      )}
+    </div>
+  );
+}
+
+function WorkshopList() {
   const state = useGame((s) => s.state);
   const accepted = state.orders.filter((o) => o.status === 'accepted');
   const runningJobs = state.jobs;

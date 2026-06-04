@@ -34,6 +34,13 @@ npm run lint      # type-check only
 5. **Reinvest** — unlock product lines, faster machines, staff, a showroom, a factory,
    an online store. Reputation gates clients, premises and machines.
 
+The **Workshop** has a **List ↔ 3D Floor** toggle. The 3D floor is a live, orbitable
+view (Three.js / react-three-fiber) that reads the same game state: benches animate
+their jobs with a blind whose slats fill in as it builds, staff appear at their
+stations, the stock rack reflects inventory, and the lighting follows the in-game
+clock. Click an idle bench to start the next ready order there. The 3D scene is
+code-split and only loaded when you open it, so the rest of the app stays light.
+
 The **speed control** (top right) runs the clock: pause / 1× / 2× / 3×. Progress
 autosaves each in-game day (where `localStorage` is available).
 
@@ -67,6 +74,7 @@ src/
     gameStore.ts   Zustand store wrapping the pure game
   hooks/useGameLoop.ts   setInterval tick driver (speed = ticks/sec)
   components/      TopBar, Sidebar, Toasts, shared UI primitives
+  scene/Workshop3D.tsx   Live 3D workshop floor (Three.js / r3f), lazy-loaded
   screens/         Dashboard, Orders, Workshop, Inventory, Showroom, Staff, Upgrades, Reports
 ```
 
