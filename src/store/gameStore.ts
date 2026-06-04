@@ -123,3 +123,8 @@ export const useGame = create<GameStore>((set, get) => {
     dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
   };
 });
+
+// Dev-only: expose the store for debugging and automated scene captures.
+if (import.meta.env.DEV && typeof window !== 'undefined') {
+  (window as unknown as { __game: typeof useGame }).__game = useGame;
+}

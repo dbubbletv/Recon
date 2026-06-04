@@ -35,11 +35,23 @@ npm run lint      # type-check only
    an online store. Reputation gates clients, premises and machines.
 
 The **Workshop** has a **List ↔ 3D Floor** toggle. The 3D floor is a live, orbitable
-view (Three.js / react-three-fiber) that reads the same game state: benches animate
-their jobs with a blind whose slats fill in as it builds, staff appear at their
-stations, the stock rack reflects inventory, and the lighting follows the in-game
-clock. Click an idle bench to start the next ready order there. The 3D scene is
-code-split and only loaded when you open it, so the rest of the app stays light.
+view (Three.js / react-three-fiber) that reads the same game state — a proper factory
+interior with sky + windows, roof beams and hanging lights, and soft shadows:
+
+- **Distinct machines per tier** — a manual bench with a tool board, a semi-auto cutter
+  with a sliding cutting head that throws sparks, and enclosed CNC cells with moving
+  gantries for the automated/precision lines.
+- **Blinds take shape** on each running bench (roller sheets unrolling, venetian slats
+  stacking, vertical vanes appearing), with a progress bar floating above.
+- **Articulated staff** in role-coloured hard hats work at their bench; idle staff
+  wander the break area. A material cart ferries stock to busy benches.
+- **Stock shelving** fills with fabric rolls by inventory; a despatch pallet grows with
+  lifetime output. **Day/night lighting** follows the in-game clock.
+- **Camera presets** — Overview, Top-down, and Follow-job — plus orbit/zoom/pan.
+- Click an idle bench to start the next ready order there.
+
+The 3D scene is code-split and only loaded when you open it, so the rest of the app
+stays light (main bundle ~71 kB gzipped).
 
 The **speed control** (top right) runs the clock: pause / 1× / 2× / 3×. Progress
 autosaves each in-game day (where `localStorage` is available).

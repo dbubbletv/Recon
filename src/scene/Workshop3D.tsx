@@ -1,10 +1,18 @@
 import { useMemo, useRef, useState } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { Html, OrbitControls, RoundedBox } from '@react-three/drei';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import {
+  ContactShadows,
+  Edges,
+  Grid,
+  Html,
+  OrbitControls,
+  RoundedBox,
+  SoftShadows,
+  Sky,
+} from '@react-three/drei';
 import * as THREE from 'three';
 import { useGame } from '../store/gameStore';
 import { MACHINES_BY_ID } from '../data/machines';
-import { BLIND_TYPES_BY_ID } from '../data/blindTypes';
 import {
   freeStations,
   freeWorkers,
@@ -16,58 +24,42 @@ import {
 import { canFulfilOrder } from '../game/systems/inventorySystem';
 import type { GameState, Job, Order, Station } from '../game/types';
 import { describeLine } from '../game/describe';
+import {
+  BlindModel,
+  FinishedGoods,
+  IdleStaff,
+  lightingFor,
+  MachineModel,
+  MaterialCart,
+  stationGridPos,
+  StockShelf,
+  Worker,
+} from './parts';
 
-// 3D workshop floor — a live, orbitable visualisation driven by the same game state
-// as the rest of the UI. Benches animate their jobs, staff appear at their stations,
-// stock racks fill with inventory, and the lighting follows the in-game clock.
-// Clicking an idle bench starts the next ready, buildable order there.
+// The live 3D workshop floor: a proper building with sky + windows, distinct machines
+// per tier, animated cutting + staff, stock & despatch, and camera presets — all driven
+// by the same game state as the rest of the UI.
 
-const COLS = 4;
-const SPACING = 3.2;
-
-function stationGridPos(index: number): [number, number] {
-  const col = index % COLS;
-  const row = Math.floor(index / COLS);
-  const xOffset = ((Math.min(COLS, 1) - 1) / 2) * SPACING;
-  const total = COLS;
-  const x = (col - (total - 1) / 2) * SPACING + xOffset;
-  const z = row * SPACING;
-  return [x, z];
-}
-
-/** Warm/cool lighting + sky colour derived from the in-game hour (0..23). */
-function lightingFor(hour: number) {
-  // Day curve: peak brightness around midday, low at night.
-  const t = Math.cos(((hour - 13) / 24) * Math.PI * 2); // 1 at ~13:00, -1 at ~01:00
-  const day = (t + 1) / 2; // 0..1
-  // Keep a workable floor of light even at night (the shop lights stay on).
-  const ambient = 0.5 + day * 0.45;
-  const dir = 0.45 + day * 0.7;
-  const sky = new THREE.Color().lerpColors(
-    new THREE.Color('#0b1120'),
-    new THREE.Color('#9ec5ff'),
-    day,
-  );
-  const isNight = day < 0.35;
-  return { ambient, dir, sky, isNight, day };
-}
+type Preset = 'overview' | 'top' | 'follow';
 
 export function Floor() {
   const state = useGame((s) => s.state);
   const start = useGame((s) => s.startProduction);
   const [selected, setSelected] = useState<string | null>(null);
+  const [preset, setPreset] = useState<Preset>('overview');
 
   const light = lightingFor(state.hour);
+  const runningJob = state.jobs.find((j) => j.status === 'running') ?? null;
+  const runningStationIndex = runningJob
+    ? state.stations.findIndex((s) => s.id === runningJob.stationId)
+    : -1;
+  const followTarget = runningStationIndex >= 0 ? stationGridPos(runningStationIndex) : null;
 
-  // Try to start the next ready order on a clicked idle bench.
   const startOnStation = (stationId: string) => {
     const station = stationById(state, stationId);
     if (!station || station.broken) return;
     if (!freeStations(state).some((s) => s.id === stationId)) return;
-
-    const ready = state.orders.filter(
-      (o) => o.status === 'accepted' && canFulfilOrder(state, o),
-    );
+    const ready = state.orders.filter((o) => o.status === 'accepted' && canFulfilOrder(state, o));
     const workers = freeWorkers(state);
     for (const order of ready) {
       if (orderNeedsFitter(order)) {
@@ -84,29 +76,30 @@ export function Floor() {
 
   return (
     <div className="relative h-[calc(100vh-110px)] overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
-      <Canvas shadows camera={{ position: [7, 6.5, 10.5], fov: 42 }}>
-        <color attach="background" args={[light.sky.getStyle()]} />
-        <fog attach="fog" args={[light.sky.getStyle(), 24, 50]} />
+      <Canvas shadows dpr={[1, 1.6]} camera={{ position: [11, 8, 14], fov: 40 }} gl={{ antialias: true }}>
+        <SoftShadows size={22} samples={6} focus={0.6} />
+        <Sky sunPosition={light.sunPosition} turbidity={light.isNight ? 12 : 6} rayleigh={light.isNight ? 0.4 : 2} />
+        <fog attach="fog" args={[light.isNight ? '#0b1120' : '#aec6e4', 30, 70]} />
 
-        <ambientLight intensity={light.ambient} />
-        <hemisphereLight args={['#bcd4ff', '#1e293b', 0.5]} />
-        <directionalLight
-          position={[10, 16, 8]}
-          intensity={light.dir}
-          castShadow
-          shadow-mapSize={[1024, 1024]}
-          shadow-camera-left={-20}
-          shadow-camera-right={20}
-          shadow-camera-top={20}
-          shadow-camera-bottom={-20}
+        <LightRig light={light} />
+        <Building />
+        <Grid
+          position={[0, 0.02, 2]}
+          args={[40, 40]}
+          cellSize={1}
+          cellThickness={0.6}
+          cellColor="#1e293b"
+          sectionSize={5}
+          sectionThickness={1.1}
+          sectionColor="#334155"
+          fadeDistance={42}
+          infiniteGrid
         />
-        {/* Warm interior shop lights, always on. */}
-        <pointLight position={[0, 6, 3]} intensity={light.isNight ? 1.3 : 0.5} color="#ffe2b0" distance={36} />
-        <pointLight position={[-8, 5, 2]} intensity={0.4} color="#ffe2b0" distance={24} />
+        <ContactShadows position={[0, 0.04, 2]} opacity={0.5} scale={45} blur={2.2} far={6} />
 
-        <FloorPlane />
-        <Walls />
-        <StockRack state={state} />
+        <StockShelf state={state} />
+        <FinishedGoods made={state.stats.blindsMade} />
+        <MaterialCart active={!!runningJob} target={followTarget ? [followTarget[0], followTarget[1] - 2] : [0, -2]} />
 
         {state.stations.map((station, i) => {
           const [x, z] = stationGridPos(i);
@@ -119,6 +112,7 @@ export function Floor() {
               station={station}
               job={job}
               order={order}
+              workerRole={worker?.role}
               workerName={worker?.name}
               speed={job ? jobSpeed(state, job) : 0}
               position={[x, 0, z - 2]}
@@ -130,76 +124,144 @@ export function Floor() {
           );
         })}
 
-        {/* Idle staff loitering in the break area at the front. */}
         <IdleStaff state={state} />
 
-        <OrbitControls
-          target={[0, 0.8, 0]}
-          minDistance={5}
-          maxDistance={26}
-          maxPolarAngle={Math.PI / 2.15}
-          enablePan
-        />
+        <OrbitControls makeDefault target={[0, 1, 1]} minDistance={5} maxDistance={34} maxPolarAngle={Math.PI / 2.1} enablePan />
+        <CameraRig preset={preset} followTarget={followTarget} />
       </Canvas>
 
-      <SceneHud state={state} />
+      <SceneHud state={state} preset={preset} onPreset={setPreset} hasFollow={!!followTarget} />
     </div>
   );
 }
 
-function FloorPlane() {
-  return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 2]} receiveShadow>
-      <planeGeometry args={[40, 40]} />
-      <meshStandardMaterial color="#1e293b" />
-      {/* subtle grid lines via a second wireframe plane */}
-    </mesh>
-  );
+/** Smoothly eases the camera + orbit target toward the chosen preset each frame. */
+function CameraRig({ preset, followTarget }: { preset: Preset; followTarget: [number, number] | null }) {
+  const { camera, controls } = useThree() as unknown as { camera: THREE.PerspectiveCamera; controls: { target: THREE.Vector3; update: () => void } | null };
+  const want = useMemo(() => {
+    if (preset === 'top') return { pos: new THREE.Vector3(0.1, 22, 2.5), tgt: new THREE.Vector3(0, 0, 2) };
+    if (preset === 'follow' && followTarget) {
+      const [x, z] = followTarget;
+      return { pos: new THREE.Vector3(x + 3, 3.2, z + 1), tgt: new THREE.Vector3(x, 1.2, z - 2) };
+    }
+    return { pos: new THREE.Vector3(11, 8, 14), tgt: new THREE.Vector3(0, 1, 1) };
+  }, [preset, followTarget]);
+
+  const armed = useRef(0);
+  // Re-arm the lerp for a short window whenever the preset changes.
+  useMemo(() => {
+    armed.current = 1.2;
+    return null;
+  }, [preset]);
+
+  useFrame((_, delta) => {
+    if (armed.current <= 0) return;
+    armed.current -= delta;
+    camera.position.lerp(want.pos, 0.06);
+    if (controls?.target) {
+      controls.target.lerp(want.tgt, 0.06);
+      controls.update();
+    }
+  });
+  return null;
 }
 
-function Walls() {
+function LightRig({ light }: { light: ReturnType<typeof lightingFor> }) {
   return (
     <group>
-      <mesh position={[0, 2.5, -7]} receiveShadow>
-        <boxGeometry args={[26, 5, 0.3]} />
-        <meshStandardMaterial color="#0f172a" />
-      </mesh>
-      <mesh position={[-13, 2.5, 2]} receiveShadow>
-        <boxGeometry args={[0.3, 5, 18]} />
-        <meshStandardMaterial color="#0f172a" />
-      </mesh>
+      <ambientLight intensity={light.ambient} />
+      <hemisphereLight args={['#cfe0ff', '#1f2937', 0.55]} />
+      <directionalLight
+        position={light.sunPosition}
+        intensity={light.dir}
+        castShadow
+        shadow-mapSize={[1536, 1536]}
+        shadow-camera-left={-22}
+        shadow-camera-right={22}
+        shadow-camera-top={22}
+        shadow-camera-bottom={-22}
+        shadow-bias={-0.0004}
+      />
+      {/* Ceiling fluorescents — brighter at night. */}
+      {[-7, 0, 7].map((x) => (
+        <pointLight key={x} position={[x, 5.2, 1]} intensity={light.isNight ? 1.2 : 0.55} color="#ffe6b8" distance={22} />
+      ))}
     </group>
   );
 }
 
-/** A back-wall rack whose shelves fill to reflect total stock held. */
-function StockRack({ state }: { state: GameState }) {
-  const totalUnits = useMemo(
-    () => Object.values(state.inventory).reduce((s, n) => s + n, 0),
-    [state.inventory],
-  );
-  const rolls = Math.min(18, Math.round(totalUnits / 4));
+/** The shell: solid floor base, back + side walls with a window strip, steel columns, roof beams + light fixtures. */
+function Building() {
   return (
-    <group position={[-11.6, 0, -2]}>
-      <mesh position={[0, 1.5, 0]} castShadow>
-        <boxGeometry args={[0.4, 3, 8]} />
+    <group>
+      {/* floor base under the grid */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 2]} receiveShadow>
+        <planeGeometry args={[44, 44]} />
+        <meshStandardMaterial color="#0f172a" />
+      </mesh>
+
+      {/* back wall with a window strip */}
+      <mesh position={[0, 2, -9]} receiveShadow castShadow>
+        <boxGeometry args={[30, 4, 0.3]} />
+        <meshStandardMaterial color="#1e293b" />
+      </mesh>
+      <mesh position={[0, 4.4, -9]}>
+        <boxGeometry args={[30, 0.9, 0.1]} />
+        <meshStandardMaterial color="#7dd3fc" transparent opacity={0.28} metalness={0.1} roughness={0.05} />
+      </mesh>
+      <mesh position={[0, 5, -9]} castShadow>
+        <boxGeometry args={[30, 0.4, 0.4]} />
         <meshStandardMaterial color="#334155" />
       </mesh>
-      {Array.from({ length: rolls }).map((_, i) => {
-        const shelf = Math.floor(i / 6);
-        const slot = i % 6;
-        return (
-          <mesh key={i} position={[0.4, 0.7 + shelf * 0.9, -3 + slot * 1.2]} rotation={[0, 0, Math.PI / 2]} castShadow>
-            <cylinderGeometry args={[0.28, 0.28, 0.8, 12]} />
-            <meshStandardMaterial color={['#38bdf8', '#f59e0b', '#a78bfa'][i % 3]} />
-          </mesh>
-        );
-      })}
-      <Html position={[0.6, 3.3, 0]} center distanceFactor={12}>
-        <div className="pointer-events-none select-none rounded bg-slate-900/70 px-1.5 text-[10px] font-semibold tracking-wider text-slate-300">
-          STOCK
-        </div>
-      </Html>
+
+      {/* left wall */}
+      <mesh position={[-14.8, 2.4, 2]} receiveShadow castShadow>
+        <boxGeometry args={[0.3, 4.8, 22]} />
+        <meshStandardMaterial color="#1e293b" />
+      </mesh>
+
+      {/* steel columns */}
+      {[-14, -7, 0, 7, 14].map((x) => (
+        <mesh key={x} position={[x, 2.6, -8.8]} castShadow>
+          <boxGeometry args={[0.3, 5.2, 0.3]} />
+          <meshStandardMaterial color="#334155" metalness={0.5} />
+        </mesh>
+      ))}
+
+      {/* roof beams */}
+      {[-6, 0, 6, 12].map((z) => (
+        <mesh key={z} position={[0, 5.4, z - 4]} castShadow>
+          <boxGeometry args={[30, 0.2, 0.3]} />
+          <meshStandardMaterial color="#475569" metalness={0.4} />
+        </mesh>
+      ))}
+      {/* hanging light fixtures */}
+      {[-7, 0, 7].map((x) =>
+        [-2, 4].map((z) => (
+          <group key={`${x}-${z}`} position={[x, 5, z]}>
+            <mesh position={[0, 0.2, 0]}>
+              <cylinderGeometry args={[0.02, 0.02, 0.4, 6]} />
+              <meshStandardMaterial color="#334155" />
+            </mesh>
+            <mesh castShadow>
+              <boxGeometry args={[1.4, 0.12, 0.4]} />
+              <meshStandardMaterial color="#0f172a" emissive="#fff4d6" emissiveIntensity={0.9} />
+            </mesh>
+          </group>
+        )),
+      )}
+
+      {/* roller-shutter door on the right */}
+      <mesh position={[14.8, 2, 2]} castShadow>
+        <boxGeometry args={[0.25, 4, 6]} />
+        <meshStandardMaterial color="#334155" metalness={0.5} />
+      </mesh>
+      {Array.from({ length: 9 }).map((_, i) => (
+        <mesh key={i} position={[14.65, 0.4 + i * 0.42, 2]} castShadow>
+          <boxGeometry args={[0.08, 0.36, 5.6]} />
+          <meshStandardMaterial color={i % 2 ? '#475569' : '#3f4f63'} metalness={0.6} />
+        </mesh>
+      ))}
     </group>
   );
 }
@@ -208,6 +270,7 @@ function StationView({
   station,
   job,
   order,
+  workerRole,
   workerName,
   speed,
   position,
@@ -219,6 +282,7 @@ function StationView({
   station: Station;
   job: Job | null;
   order: Order | null;
+  workerRole?: 'cutter' | 'assembler' | 'fitter' | 'sales';
   workerName?: string;
   speed: number;
   position: [number, number, number];
@@ -231,17 +295,17 @@ function StationView({
   const running = job?.status === 'running';
   const blocked = job?.status === 'blocked' || station.broken;
   const progress = job && job.totalHours > 0 ? job.hoursDone / job.totalHours : 0;
-
-  const benchColor = blocked ? '#7f1d1d' : running ? '#1d4ed8' : '#475569';
   const idle = !job && !station.broken;
+
+  const benchTop = blocked ? '#7f1d1d' : running ? '#1e3a8a' : '#334155';
 
   return (
     <group position={position}>
-      {/* Bench */}
+      {/* bench top + legs */}
       <RoundedBox
-        args={[1.8, 0.9, 1.1]}
-        radius={0.06}
-        position={[0, 0.45, 0]}
+        args={[2.1, 0.18, 1.3]}
+        radius={0.04}
+        position={[0, 0.92, 0]}
         castShadow
         receiveShadow
         onClick={(e) => {
@@ -254,45 +318,65 @@ function StationView({
         }}
         onPointerOut={() => (document.body.style.cursor = 'default')}
       >
-        <meshStandardMaterial color={benchColor} />
+        <meshStandardMaterial color={benchTop} metalness={0.2} roughness={0.7} />
+        <Edges color={running ? '#3b82f6' : '#475569'} />
       </RoundedBox>
+      {[-0.9, 0.9].map((x) =>
+        [-0.5, 0.5].map((z) => (
+          <mesh key={`${x}${z}`} position={[x, 0.45, z]} castShadow>
+            <boxGeometry args={[0.1, 0.9, 0.1]} />
+            <meshStandardMaterial color="#1e293b" metalness={0.4} />
+          </mesh>
+        )),
+      )}
 
-      {/* Machine block on the bench, sized by machine tier */}
-      <mesh position={[0.55, 1.05, 0]} castShadow>
-        <boxGeometry args={[0.5, 0.4 + (machine?.speed ?? 1) * 0.12, 0.7]} />
-        <meshStandardMaterial color={machine?.id === 'manual_bench' ? '#64748b' : '#22d3ee'} metalness={0.4} roughness={0.4} />
-      </mesh>
+      <MachineModel machineId={station.machineId} running={running} />
 
-      {/* Blind being built — slats fill in with progress */}
-      {order && <BlindInProgress order={order} progress={progress} animated={running} />}
+      {order && <BlindModel blindTypeId={order.lines[0].blindTypeId} fabric={order.lines[0].fabric} progress={progress} running={running} />}
 
-      {/* Status indicator light */}
-      <mesh position={[-0.8, 1.1, 0.5]}>
-        <sphereGeometry args={[0.09, 12, 12]} />
+      {/* status beacon */}
+      <mesh position={[-0.95, 1.15, 0.55]}>
+        <sphereGeometry args={[0.08, 12, 12]} />
         <meshStandardMaterial
-          color={blocked ? '#ef4444' : running ? '#22c55e' : '#94a3b8'}
-          emissive={blocked ? '#ef4444' : running ? '#22c55e' : '#000000'}
-          emissiveIntensity={running ? 0.8 : 0}
+          color={blocked ? '#ef4444' : running ? '#22c55e' : '#64748b'}
+          emissive={blocked ? '#ef4444' : running ? '#22c55e' : '#000'}
+          emissiveIntensity={running || blocked ? 0.9 : 0}
         />
       </mesh>
 
-      {/* Worker figure at the bench when staffed */}
-      {running && workerName && <Worker position={[0, 0, 0.85]} working color="#fbbf24" />}
+      {/* worker at the bench when staffed + running */}
+      {running && workerRole && (
+        <group position={[0, 0, 0.95]}>
+          <Worker role={workerRole} working />
+        </group>
+      )}
 
-      {/* Floating label / progress / action */}
-      <Html position={[0, 1.9, 0]} center distanceFactor={11} occlude={false}>
+      {/* floating progress ring as a thin bar above the bench */}
+      {running && (
+        <group position={[0, 2.15, 0]}>
+          <mesh>
+            <boxGeometry args={[1.4, 0.08, 0.05]} />
+            <meshStandardMaterial color="#1e293b" />
+          </mesh>
+          <mesh position={[-0.7 + (progress * 1.4) / 2, 0, 0.01]}>
+            <boxGeometry args={[Math.max(0.02, progress * 1.4), 0.08, 0.06]} />
+            <meshStandardMaterial color="#22c55e" emissive="#22c55e" emissiveIntensity={0.5} />
+          </mesh>
+        </group>
+      )}
+
+      {/* labels + action */}
+      <Html position={[0, 2.45, 0]} center distanceFactor={13} occlude={false}>
         <div className="pointer-events-none select-none whitespace-nowrap text-center">
           <div className="rounded bg-slate-900/85 px-1.5 py-0.5 text-[10px] font-medium text-slate-100 ring-1 ring-slate-700">
             {station.name} · {machine?.name.split(' ')[0]}
           </div>
           {running && order && (
-            <div className="mt-0.5 rounded bg-blue-900/80 px-1.5 py-0.5 text-[9px] text-blue-100">
+            <div className="mt-0.5 rounded bg-blue-900/85 px-1.5 py-0.5 text-[9px] text-blue-100">
               {order.customerName} · {Math.round(progress * 100)}%
             </div>
           )}
-          {blocked && (
-            <div className="mt-0.5 rounded bg-rose-900/80 px-1.5 py-0.5 text-[9px] text-rose-100">broken</div>
-          )}
+          {blocked && <div className="mt-0.5 rounded bg-rose-900/85 px-1.5 py-0.5 text-[9px] text-rose-100">⚠ broken</div>}
           {idle && (
             <button
               className="pointer-events-auto mt-0.5 rounded bg-emerald-600 px-1.5 py-0.5 text-[9px] font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
@@ -309,14 +393,16 @@ function StationView({
         </div>
       </Html>
 
-      {selected && order && (
-        <Html position={[0, 2.7, 0]} center distanceFactor={10}>
-          <div className="pointer-events-none w-44 rounded-lg bg-slate-900/95 p-2 text-[10px] text-slate-200 ring-1 ring-slate-700">
+      {selected && order && job && (
+        <Html position={[0, 3.15, 0]} center distanceFactor={12}>
+          <div className="pointer-events-none w-48 rounded-lg bg-slate-900/95 p-2 text-[10px] text-slate-200 ring-1 ring-slate-700">
             {order.lines.slice(0, 3).map((l, i) => (
               <div key={i}>• {describeLine(l)}</div>
             ))}
             {workerName && <div className="mt-1 text-slate-400">👷 {workerName}</div>}
-            <div className="text-slate-400">~{Math.max(0, Math.ceil((job!.totalHours - job!.hoursDone) / Math.max(0.1, speed)))}h left</div>
+            <div className="text-slate-400">
+              ~{Math.max(0, Math.ceil((job.totalHours - job.hoursDone) / Math.max(0.1, speed)))}h left
+            </div>
           </div>
         </Html>
       )}
@@ -324,103 +410,56 @@ function StationView({
   );
 }
 
-/** A small mounted blind whose slats reveal as the job progresses. */
-function BlindInProgress({ order, progress, animated }: { order: Order; progress: number; animated: boolean }) {
-  const groupRef = useRef<THREE.Group>(null);
-  const line = order.lines[0];
-  const def = line ? BLIND_TYPES_BY_ID[line.blindTypeId] : undefined;
-  const slatColor = fabricColour(line?.fabric ?? 'standard', def?.id);
-  const slatCount = 10;
-  const revealed = Math.round(progress * slatCount);
-
-  useFrame((_, delta) => {
-    if (animated && groupRef.current) groupRef.current.rotation.y += delta * 0.15;
-  });
-
-  return (
-    <group ref={groupRef} position={[-0.3, 1.35, 0]}>
-      {/* Headrail */}
-      <mesh position={[0, 0.55, 0]} castShadow>
-        <boxGeometry args={[0.9, 0.08, 0.12]} />
-        <meshStandardMaterial color="#cbd5e1" metalness={0.5} roughness={0.4} />
-      </mesh>
-      {Array.from({ length: slatCount }).map((_, i) => (
-        <mesh key={i} position={[0, 0.5 - i * 0.1, 0]} castShadow visible={i < revealed}>
-          <boxGeometry args={[0.86, 0.07, 0.04]} />
-          <meshStandardMaterial color={slatColor} />
-        </mesh>
-      ))}
-    </group>
-  );
-}
-
-function fabricColour(fabric: string, blindId?: string): string {
-  if (blindId === 'wood_venetian') return '#b45309';
-  if (blindId === 'roman') return '#7c3aed';
-  if (blindId === 'cellular') return '#0ea5e9';
-  switch (fabric) {
-    case 'luxury':
-      return '#f472b6';
-    case 'premium':
-      return '#34d399';
-    default:
-      return '#e2e8f0';
-  }
-}
-
-/** A blocky little person. `working` gives a gentle bob animation. */
-function Worker({ position, color, working }: { position: [number, number, number]; color: string; working?: boolean }) {
-  const ref = useRef<THREE.Group>(null);
-  useFrame((s) => {
-    if (working && ref.current) {
-      ref.current.position.y = Math.abs(Math.sin(s.clock.elapsedTime * 3)) * 0.06;
-    }
-  });
-  return (
-    <group ref={ref} position={position}>
-      <mesh position={[0, 0.45, 0]} castShadow>
-        <capsuleGeometry args={[0.16, 0.4, 4, 8]} />
-        <meshStandardMaterial color={color} />
-      </mesh>
-      <mesh position={[0, 0.85, 0]} castShadow>
-        <sphereGeometry args={[0.15, 12, 12]} />
-        <meshStandardMaterial color="#f1c27d" />
-      </mesh>
-    </group>
-  );
-}
-
-function IdleStaff({ state }: { state: GameState }) {
-  const idle = state.staff.filter((s) => !s.assignedJobId);
-  return (
-    <group position={[0, 0, 7]}>
-      {idle.map((s, i) => {
-        const colour = s.role === 'sales' ? '#a78bfa' : s.role === 'fitter' ? '#f59e0b' : '#60a5fa';
-        return (
-          <group key={s.id} position={[(i - (idle.length - 1) / 2) * 1.1, 0, 0]}>
-            <Worker position={[0, 0, 0]} color={colour} />
-            <Html position={[0, 1.2, 0]} center distanceFactor={12}>
-              <div className="pointer-events-none whitespace-nowrap rounded bg-slate-900/80 px-1 text-[9px] text-slate-300">
-                {s.name.split(' ')[0]} · {s.role}
-              </div>
-            </Html>
-          </group>
-        );
-      })}
-    </group>
-  );
-}
-
-function SceneHud({ state }: { state: GameState }) {
+function SceneHud({
+  state,
+  preset,
+  onPreset,
+  hasFollow,
+}: {
+  state: GameState;
+  preset: Preset;
+  onPreset: (p: Preset) => void;
+  hasFollow: boolean;
+}) {
   const running = state.jobs.filter((j) => j.status === 'running').length;
   const accepted = state.orders.filter((o) => o.status === 'accepted').length;
+  const hour = Math.floor(state.hour);
+  const presets: { id: Preset; label: string; disabled?: boolean }[] = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'top', label: 'Top-down' },
+    { id: 'follow', label: 'Follow job', disabled: !hasFollow },
+  ];
+
   return (
-    <div className="pointer-events-none absolute left-3 top-3 rounded-lg bg-slate-900/70 px-3 py-2 text-xs text-slate-200 ring-1 ring-slate-700 backdrop-blur">
-      <div className="font-medium">Workshop floor</div>
-      <div className="mt-1 text-slate-400">
-        {running} building · {accepted} ready · {state.stations.length} bench{state.stations.length > 1 ? 'es' : ''}
+    <>
+      <div className="pointer-events-none absolute left-3 top-3 rounded-lg bg-slate-900/70 px-3 py-2 text-xs text-slate-200 ring-1 ring-slate-700 backdrop-blur">
+        <div className="font-medium">Workshop floor · {hour.toString().padStart(2, '0')}:00</div>
+        <div className="mt-1 text-slate-400">
+          {running} building · {accepted} ready · {state.stations.length} bench{state.stations.length > 1 ? 'es' : ''}
+        </div>
+        <div className="mt-1 text-[10px] text-slate-500">drag to orbit · scroll to zoom · click a bench</div>
       </div>
-      <div className="mt-1 text-[10px] text-slate-500">drag to orbit · scroll to zoom · click a bench</div>
-    </div>
+
+      <div className="absolute right-3 top-3 flex overflow-hidden rounded-lg border border-slate-700">
+        {presets.map((p) => (
+          <button
+            key={p.id}
+            disabled={p.disabled}
+            onClick={() => onPreset(p.id)}
+            className={`px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-30 ${
+              preset === p.id ? 'bg-brand-600 text-white' : 'bg-slate-800/90 text-slate-300 hover:bg-slate-700'
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="pointer-events-none absolute bottom-3 left-3 flex gap-3 rounded-lg bg-slate-900/70 px-3 py-1.5 text-[10px] text-slate-300 ring-1 ring-slate-700">
+        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-emerald-500" /> running</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-slate-500" /> idle</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-rose-500" /> broken</span>
+      </div>
+    </>
   );
 }
