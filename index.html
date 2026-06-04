@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Capricorn Blinds — Manufacturing Simulator</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- ===================== TITLE SCREEN ===================== -->
+    <section id="titleScreen" class="screen">
+      <div class="title-card">
+        <div class="logo">
+          <span class="logo-mark">♑</span>
+          <h1>CAPRICORN BLINDS</h1>
+          <p class="tagline">Manufacturing Simulator</p>
+        </div>
+        <p class="intro">
+          Run the Capricorn Blinds factory. Take orders, cut fabric to size on the
+          precision bench, assemble blinds, ship them out and grow your empire —
+          one window at a time.
+        </p>
+        <button id="startBtn" class="btn btn-primary btn-big">Start Factory</button>
+        <button id="howBtn" class="btn btn-ghost">How to Play</button>
+        <p class="credit">A 2D tycoon game · v1.0</p>
+      </div>
+
+      <div id="howModal" class="modal hidden">
+        <div class="modal-card">
+          <h2>How to Play</h2>
+          <ol>
+            <li><b>Take an order</b> from the Orders panel. Each order needs a blind
+                type, colour and a set width.</li>
+            <li><b>Stock fabric</b> in the right colour from the Shop. Each blind built
+                uses one unit of matching fabric.</li>
+            <li><b>Cut &amp; Build</b> at the bench. A blade sweeps across the ruler —
+                click (or press <kbd>Space</kbd>) when it lands inside the green target
+                zone for a clean cut. Perfect hits give bonus cash &amp; reputation.</li>
+            <li><b>Complete orders</b> before their deadline (in days) to get paid.
+                Missed orders cost you reputation.</li>
+            <li><b>End the day</b> to advance time. You pay rent each day and new orders
+                arrive. Spend profits on <b>Upgrades</b> to build faster and better.</li>
+            <li>Keep cash above zero and reputation healthy. Go bankrupt and it's game over!</li>
+          </ol>
+          <button id="closeHowBtn" class="btn btn-primary">Got it</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== GAME SCREEN ===================== -->
+    <section id="gameScreen" class="screen hidden">
+      <header id="topbar">
+        <div class="brand"><span class="logo-mark small">♑</span> Capricorn Blinds</div>
+        <div class="stats">
+          <div class="stat"><span class="stat-label">Cash</span><span id="statCash" class="stat-val">$0</span></div>
+          <div class="stat"><span class="stat-label">Day</span><span id="statDay" class="stat-val">1</span></div>
+          <div class="stat"><span class="stat-label">Reputation</span><span id="statRep" class="stat-val">50</span></div>
+          <div class="stat"><span class="stat-label">Shipped</span><span id="statShipped" class="stat-val">0</span></div>
+        </div>
+        <button id="nextDayBtn" class="btn btn-warn">End Day ▸</button>
+      </header>
+
+      <main id="layout">
+        <!-- LEFT: Orders -->
+        <aside id="ordersPanel" class="panel">
+          <h3 class="panel-title">Orders</h3>
+          <div id="ordersList"></div>
+        </aside>
+
+        <!-- CENTER: Factory canvas + production controls -->
+        <div id="centerCol">
+          <canvas id="gameCanvas" width="640" height="420"></canvas>
+          <div id="production">
+            <div id="activeOrderInfo">Select an order to begin production.</div>
+            <div class="prod-buttons">
+              <button id="buildBtn" class="btn btn-primary" disabled>Cut &amp; Build</button>
+              <button id="cutBtn" class="btn btn-accent hidden">CUT!</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT: Inventory + Shop -->
+        <aside id="rightPanel" class="panel">
+          <div class="tabs">
+            <button class="tab active" data-tab="inventory">Inventory</button>
+            <button class="tab" data-tab="shop">Shop</button>
+            <button class="tab" data-tab="upgrades">Upgrades</button>
+          </div>
+          <div id="tab-inventory" class="tab-content"></div>
+          <div id="tab-shop" class="tab-content hidden"></div>
+          <div id="tab-upgrades" class="tab-content hidden"></div>
+        </aside>
+      </main>
+
+      <footer id="logbar">
+        <div id="log"></div>
+      </footer>
+    </section>
+
+    <!-- ===================== GAME OVER ===================== -->
+    <section id="gameOverScreen" class="screen hidden">
+      <div class="title-card">
+        <h1 id="goTitle">Game Over</h1>
+        <p id="goMessage"></p>
+        <div id="goStats" class="go-stats"></div>
+        <button id="restartBtn" class="btn btn-primary btn-big">Play Again</button>
+      </div>
+    </section>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
