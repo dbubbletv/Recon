@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { MACHINES_BY_ID } from '../data/machines';
 import { BLIND_TYPES_BY_ID } from '../data/blindTypes';
 import type { GameState, Staff } from '../game/types';
+import { concreteTexture, fabricTexture, metalTexture, woodTexture } from './textures';
 
 // Building blocks for the 3D workshop floor. Everything here is procedural geometry
 // (no external textures/fonts/HDRIs) so the scene renders offline and in sandboxes.
@@ -200,6 +201,7 @@ export function BlindModel({
   const group = useRef<THREE.Group>(null);
   const def = BLIND_TYPES_BY_ID[blindTypeId];
   const colour = fabricColour(fabric, blindTypeId);
+  const tex = useMemo(() => fabricTexture(colour), [colour]);
 
   useFrame((s) => {
     if (running && group.current) group.current.rotation.z = Math.sin(s.clock.elapsedTime * 2) * 0.03;
@@ -223,7 +225,7 @@ export function BlindModel({
       {family === 'sheet' && (
         <mesh position={[0, 0.58 - (progress * 1.0) / 2, 0]} castShadow>
           <boxGeometry args={[0.94, Math.max(0.02, progress * 1.0), 0.03]} />
-          <meshStandardMaterial color={colour} side={THREE.DoubleSide} />
+          <meshStandardMaterial map={tex} color={colour} roughness={0.9} side={THREE.DoubleSide} />
         </mesh>
       )}
 
@@ -287,6 +289,8 @@ function CuttingHead({ running }: { running: boolean }) {
 /** The machine superstructure on a bench, distinct per tier. */
 export function MachineModel({ machineId, running }: { machineId: string; running: boolean }) {
   const gantry = useRef<THREE.Group>(null);
+  const metal = useMemo(() => metalTexture(), []);
+  const wood = useMemo(() => woodTexture(), []);
   useFrame((s) => {
     if (gantry.current && running) gantry.current.position.x = Math.sin(s.clock.elapsedTime * 2) * 0.55;
   });
@@ -297,7 +301,7 @@ export function MachineModel({ machineId, running }: { machineId: string; runnin
         {/* tool board behind the bench */}
         <mesh position={[0, 1.55, -0.5]} castShadow>
           <boxGeometry args={[1.6, 0.7, 0.05]} />
-          <meshStandardMaterial color="#7c5c3a" />
+          <meshStandardMaterial map={wood} color="#a07a4d" roughness={0.85} />
         </mesh>
         {[-0.5, -0.1, 0.3, 0.6].map((x, i) => (
           <mesh key={i} position={[x, 1.55, -0.46]} castShadow>
@@ -320,7 +324,7 @@ export function MachineModel({ machineId, running }: { machineId: string; runnin
         {/* rail */}
         <mesh position={[0, 1.32, 0.18]} castShadow>
           <boxGeometry args={[1.5, 0.06, 0.06]} />
-          <meshStandardMaterial color="#64748b" metalness={0.7} roughness={0.3} />
+          <meshStandardMaterial map={metal} metalness={0.85} roughness={0.28} envMapIntensity={1.2} />
         </mesh>
         <CuttingHead running={running} />
         {/* control panel */}
@@ -340,11 +344,13 @@ export function MachineModel({ machineId, running }: { machineId: string; runnin
       <mesh position={[0, 1.35, 0]} castShadow>
         <boxGeometry args={[1.7, 1.0, 1.3]} />
         <meshStandardMaterial
-          color={premium ? '#e2e8f0' : '#475569'}
-          metalness={0.5}
-          roughness={0.35}
+          map={metal}
+          color={premium ? '#f1f5f9' : '#64748b'}
+          metalness={0.7}
+          roughness={0.18}
+          envMapIntensity={1.4}
           transparent
-          opacity={0.32}
+          opacity={0.34}
         />
         <Edges color={premium ? '#22d3ee' : '#94a3b8'} />
       </mesh>
@@ -399,8 +405,8 @@ export function StockShelf({ state }: { state: GameState }) {
             rotation={[Math.PI / 2, 0, 0]}
             castShadow
           >
-            <cylinderGeometry args={[0.22, 0.22, 0.9, 14]} />
-            <meshStandardMaterial color={rollColours[i % rollColours.length]} roughness={0.8} />
+            <cylinderGeometry args={[0.22, 0.22, 0.9, 16]} />
+            <meshStandardMaterial map={fabricTexture(rollColours[i % rollColours.length])} roughness={0.92} />
           </mesh>
         );
       })}
@@ -484,4 +490,114 @@ export function MaterialCart({ active, target }: { active: boolean; target: [num
   );
 }
 
-export { RoundedBox, MACHINES_BY_ID };
+/** A lit showroom strip along the back wall with framed sample blinds. */
+export function Showroom() {
+  const samples = [
+    { colour: '#e2e8f0', label: 'Roller' },
+    { colour: '#b45309', label: 'Wood Venetian' },
+    { colour: '#8b5cf6', label: 'Roman' },
+    { colour: '#0ea5e9', label: 'Cellular' },
+  ];
+  return (
+    <group position={[0, 0, -8.6]}>
+      {samples.map((s, i) => {
+        const x = (i - (samples.length - 1) / 2) * 3.0;
+        return (
+          <group key={i} position={[x, 2.2, 0]}>
+            {/* lit display niche */}
+            <mesh position={[0, 0, -0.05]}>
+              <boxGeometry args={[1.6, 2.0, 0.1]} />
+              <meshStandardMaterial color="#0b1120" emissive="#1e293b" emissiveIntensity={0.5} />
+            </mesh>
+            {/* frame */}
+            <mesh>
+              <boxGeometry args={[1.7, 2.1, 0.06]} />
+              <meshStandardMaterial color="#334155" metalness={0.5} roughness={0.4} />
+              <Edges color="#64748b" />
+            </mesh>
+            {/* sample blind */}
+            <mesh position={[0, 0, 0.08]}>
+              <boxGeometry args={[1.3, 1.7, 0.04]} />
+              <meshStandardMaterial map={fabricTexture(s.colour)} color={s.colour} roughness={0.9} />
+            </mesh>
+            {/* niche spotlight */}
+            <spotLight position={[0, 1.6, 1.6]} angle={0.5} penumbra={0.6} intensity={6} distance={6} color="#fff4d6" target-position={[x, 1.5, -8]} />
+            <Html position={[0, -1.25, 0.1]} center distanceFactor={16}>
+              <div className="pointer-events-none whitespace-nowrap rounded bg-slate-900/80 px-1.5 py-0.5 text-[9px] font-medium text-slate-200">
+                {s.label}
+              </div>
+            </Html>
+          </group>
+        );
+      })}
+      <Html position={[0, 4.0, 0]} center distanceFactor={20}>
+        <div className="pointer-events-none rounded bg-slate-900/70 px-3 py-0.5 text-[11px] font-semibold tracking-[0.3em] text-sky-300">
+          SHOWROOM
+        </div>
+      </Html>
+    </group>
+  );
+}
+
+/** A forklift idling by the despatch bay, gently shuttling a pallet. */
+export function Forklift({ active }: { active: boolean }) {
+  const ref = useRef<THREE.Group>(null);
+  const mast = useRef<THREE.Group>(null);
+  const metal = useMemo(() => metalTexture(), []);
+  useFrame((s) => {
+    if (!ref.current) return;
+    const t = s.clock.elapsedTime;
+    if (active) {
+      ref.current.position.z = 4 + Math.sin(t * 0.4) * 2.2;
+      ref.current.rotation.y = Math.cos(t * 0.4) > 0 ? 0 : Math.PI;
+    }
+    if (mast.current) mast.current.position.y = 0.2 + (Math.sin(t * 0.8) * 0.5 + 0.5) * 0.4;
+  });
+  return (
+    <group ref={ref} position={[9.5, 0, 4]}>
+      {/* body */}
+      <mesh position={[0, 0.5, -0.2]} castShadow>
+        <boxGeometry args={[0.9, 0.7, 1.4]} />
+        <meshStandardMaterial map={metal} color="#f59e0b" metalness={0.4} roughness={0.5} />
+      </mesh>
+      {/* cab cage */}
+      <mesh position={[0, 1.25, -0.45]} castShadow>
+        <boxGeometry args={[0.7, 0.7, 0.06]} />
+        <meshStandardMaterial color="#1e293b" />
+      </mesh>
+      {/* mast */}
+      <mesh position={[0, 0.9, 0.55]} castShadow>
+        <boxGeometry args={[0.7, 1.8, 0.1]} />
+        <meshStandardMaterial color="#334155" metalness={0.6} />
+      </mesh>
+      {/* forks + pallet */}
+      <group ref={mast} position={[0, 0.2, 0.65]}>
+        {[-0.2, 0.2].map((x) => (
+          <mesh key={x} position={[x, 0, 0.2]} castShadow>
+            <boxGeometry args={[0.08, 0.05, 0.6]} />
+            <meshStandardMaterial color="#64748b" metalness={0.6} />
+          </mesh>
+        ))}
+        <mesh position={[0, 0.12, 0.3]} castShadow>
+          <boxGeometry args={[0.7, 0.18, 0.6]} />
+          <meshStandardMaterial color="#7c5c3a" />
+        </mesh>
+        <mesh position={[0, 0.35, 0.3]} rotation={[Math.PI / 2, 0, 0]} castShadow>
+          <cylinderGeometry args={[0.13, 0.13, 0.5, 12]} />
+          <meshStandardMaterial map={fabricTexture('#38bdf8')} />
+        </mesh>
+      </group>
+      {/* wheels */}
+      {[-0.4, 0.4].map((x) =>
+        [-0.5, 0.5].map((z) => (
+          <mesh key={`${x}${z}`} position={[x, 0.18, z - 0.2]} rotation={[Math.PI / 2, 0, 0]} castShadow>
+            <cylinderGeometry args={[0.18, 0.18, 0.12, 14]} />
+            <meshStandardMaterial color="#0f172a" />
+          </mesh>
+        )),
+      )}
+    </group>
+  );
+}
+
+export { RoundedBox, MACHINES_BY_ID, concreteTexture };

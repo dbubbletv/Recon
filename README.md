@@ -35,8 +35,11 @@ npm run lint      # type-check only
    an online store. Reputation gates clients, premises and machines.
 
 The **Workshop** has a **List ↔ 3D Floor** toggle. The 3D floor is a live, orbitable
-view (Three.js / react-three-fiber) that reads the same game state — a proper factory
-interior with sky + windows, roof beams and hanging lights, and soft shadows:
+view (Three.js / react-three-fiber) that reads the same game state — a cinematic factory
+interior with a sky, windows, roof beams and hanging lights, a **reflective
+polished-concrete floor**, soft shadows, a baked studio environment for reflections on
+metal & glass, and post-processing (bloom + vignette). All textures are generated
+procedurally at runtime, so there are no external image assets:
 
 - **Distinct machines per tier** — a manual bench with a tool board, a semi-auto cutter
   with a sliding cutting head that throws sparks, and enclosed CNC cells with moving
@@ -46,8 +49,10 @@ interior with sky + windows, roof beams and hanging lights, and soft shadows:
 - **Articulated staff** in role-coloured hard hats work at their bench; idle staff
   wander the break area. A material cart ferries stock to busy benches.
 - **Stock shelving** fills with fabric rolls by inventory; a despatch pallet grows with
-  lifetime output. **Day/night lighting** follows the in-game clock.
-- **Camera presets** — Overview, Top-down, and Follow-job — plus orbit/zoom/pan.
+  lifetime output; a **forklift** shuttles a pallet by the despatch bay; a material cart
+  ferries stock to busy benches. **Day/night lighting** follows the in-game clock.
+- A **showroom** strip along the back wall displays framed sample blinds under spotlights.
+- **Camera presets** — Overview, Top-down, Follow-job, Showroom — plus orbit/zoom/pan.
 - Click an idle bench to start the next ready order there.
 
 The 3D scene is code-split and only loaded when you open it, so the rest of the app
@@ -86,7 +91,10 @@ src/
     gameStore.ts   Zustand store wrapping the pure game
   hooks/useGameLoop.ts   setInterval tick driver (speed = ticks/sec)
   components/      TopBar, Sidebar, Toasts, shared UI primitives
-  scene/Workshop3D.tsx   Live 3D workshop floor (Three.js / r3f), lazy-loaded
+  scene/           Live 3D workshop floor (Three.js / r3f), lazy-loaded
+    Workshop3D.tsx   Canvas, camera rig, lighting, building shell, post-processing
+    parts.tsx        Machines, staff, blinds, stock, showroom, forklift, cart
+    textures.ts      Procedurally generated PBR textures (no external assets)
   screens/         Dashboard, Orders, Workshop, Inventory, Showroom, Staff, Upgrades, Reports
 ```
 

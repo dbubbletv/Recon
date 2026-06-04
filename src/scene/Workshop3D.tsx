@@ -3,13 +3,17 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
   ContactShadows,
   Edges,
+  Environment,
   Grid,
   Html,
+  Lightformer,
+  MeshReflectorMaterial,
   OrbitControls,
   RoundedBox,
   SoftShadows,
   Sky,
 } from '@react-three/drei';
+import { Bloom, EffectComposer, SMAA, Vignette } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { useGame } from '../store/gameStore';
 import { MACHINES_BY_ID } from '../data/machines';
@@ -27,20 +31,23 @@ import { describeLine } from '../game/describe';
 import {
   BlindModel,
   FinishedGoods,
+  Forklift,
   IdleStaff,
   lightingFor,
   MachineModel,
   MaterialCart,
+  Showroom,
   stationGridPos,
   StockShelf,
   Worker,
 } from './parts';
+import { concreteTexture, woodTexture } from './textures';
 
 // The live 3D workshop floor: a proper building with sky + windows, distinct machines
 // per tier, animated cutting + staff, stock & despatch, and camera presets — all driven
 // by the same game state as the rest of the UI.
 
-type Preset = 'overview' | 'top' | 'follow';
+type Preset = 'overview' | 'top' | 'follow' | 'showroom';
 
 export function Floor() {
   const state = useGame((s) => s.state);
@@ -81,24 +88,34 @@ export function Floor() {
         <Sky sunPosition={light.sunPosition} turbidity={light.isNight ? 12 : 6} rayleigh={light.isNight ? 0.4 : 2} />
         <fog attach="fog" args={[light.isNight ? '#0b1120' : '#aec6e4', 30, 70]} />
 
+        {/* Baked studio environment for reflections on metal & glass (no network assets). */}
+        <Environment resolution={64} frames={1}>
+          <Lightformer intensity={2} position={[0, 6, 2]} scale={[12, 6, 1]} color="#fff4e0" />
+          <Lightformer intensity={1.2} position={[-8, 4, 4]} scale={[6, 6, 1]} color="#bcd4ff" />
+          <Lightformer intensity={1.2} position={[8, 4, 4]} scale={[6, 6, 1]} color="#bcd4ff" />
+          <Lightformer intensity={0.8} position={[0, 3, -8]} scale={[10, 4, 1]} color="#ffffff" />
+        </Environment>
+
         <LightRig light={light} />
         <Building />
         <Grid
-          position={[0, 0.02, 2]}
+          position={[0, 0.025, 2]}
           args={[40, 40]}
           cellSize={1}
-          cellThickness={0.6}
-          cellColor="#1e293b"
+          cellThickness={0.5}
+          cellColor="#334155"
           sectionSize={5}
-          sectionThickness={1.1}
-          sectionColor="#334155"
-          fadeDistance={42}
+          sectionThickness={1.0}
+          sectionColor="#475569"
+          fadeDistance={44}
           infiniteGrid
         />
-        <ContactShadows position={[0, 0.04, 2]} opacity={0.5} scale={45} blur={2.2} far={6} />
+        <ContactShadows position={[0, 0.04, 2]} opacity={0.55} scale={45} blur={2.4} far={6} />
 
+        <Showroom />
         <StockShelf state={state} />
         <FinishedGoods made={state.stats.blindsMade} />
+        <Forklift active={!!runningJob} />
         <MaterialCart active={!!runningJob} target={followTarget ? [followTarget[0], followTarget[1] - 2] : [0, -2]} />
 
         {state.stations.map((station, i) => {
@@ -128,6 +145,13 @@ export function Floor() {
 
         <OrbitControls makeDefault target={[0, 1, 1]} minDistance={5} maxDistance={34} maxPolarAngle={Math.PI / 2.1} enablePan />
         <CameraRig preset={preset} followTarget={followTarget} />
+
+        {/* Cinematic post: subtle bloom on emissives/sparks, gentle vignette, SMAA. */}
+        <EffectComposer multisampling={0} enableNormalPass={false}>
+          <Bloom luminanceThreshold={0.65} luminanceSmoothing={0.3} intensity={0.7} mipmapBlur />
+          <Vignette eskil={false} offset={0.25} darkness={0.65} />
+          <SMAA />
+        </EffectComposer>
       </Canvas>
 
       <SceneHud state={state} preset={preset} onPreset={setPreset} hasFollow={!!followTarget} />
@@ -140,6 +164,7 @@ function CameraRig({ preset, followTarget }: { preset: Preset; followTarget: [nu
   const { camera, controls } = useThree() as unknown as { camera: THREE.PerspectiveCamera; controls: { target: THREE.Vector3; update: () => void } | null };
   const want = useMemo(() => {
     if (preset === 'top') return { pos: new THREE.Vector3(0.1, 22, 2.5), tgt: new THREE.Vector3(0, 0, 2) };
+    if (preset === 'showroom') return { pos: new THREE.Vector3(0, 3, 0.5), tgt: new THREE.Vector3(0, 2.2, -8.6) };
     if (preset === 'follow' && followTarget) {
       const [x, z] = followTarget;
       return { pos: new THREE.Vector3(x + 3, 3.2, z + 1), tgt: new THREE.Vector3(x, 1.2, z - 2) };
@@ -192,12 +217,26 @@ function LightRig({ light }: { light: ReturnType<typeof lightingFor> }) {
 
 /** The shell: solid floor base, back + side walls with a window strip, steel columns, roof beams + light fixtures. */
 function Building() {
+  const concrete = useMemo(() => concreteTexture(), []);
   return (
     <group>
-      {/* floor base under the grid */}
+      {/* polished-concrete floor with subtle blurred reflections */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 2]} receiveShadow>
-        <planeGeometry args={[44, 44]} />
-        <meshStandardMaterial color="#0f172a" />
+        <planeGeometry args={[60, 60]} />
+        <MeshReflectorMaterial
+          resolution={256}
+          mixBlur={1}
+          mixStrength={1.3}
+          blur={[300, 80]}
+          mirror={0.35}
+          roughness={1}
+          depthScale={0.6}
+          minDepthThreshold={0.4}
+          maxDepthThreshold={1.2}
+          metalness={0.2}
+          map={concrete}
+          color="#9aa6b6"
+        />
       </mesh>
 
       {/* back wall with a window strip */}
@@ -296,8 +335,9 @@ function StationView({
   const blocked = job?.status === 'blocked' || station.broken;
   const progress = job && job.totalHours > 0 ? job.hoursDone / job.totalHours : 0;
   const idle = !job && !station.broken;
+  const wood = useMemo(() => woodTexture(), []);
 
-  const benchTop = blocked ? '#7f1d1d' : running ? '#1e3a8a' : '#334155';
+  const benchTop = blocked ? '#7f1d1d' : running ? '#1e3a8a' : '#475569';
 
   return (
     <group position={position}>
@@ -318,7 +358,7 @@ function StationView({
         }}
         onPointerOut={() => (document.body.style.cursor = 'default')}
       >
-        <meshStandardMaterial color={benchTop} metalness={0.2} roughness={0.7} />
+        <meshStandardMaterial map={wood} color={benchTop} metalness={0.15} roughness={0.8} />
         <Edges color={running ? '#3b82f6' : '#475569'} />
       </RoundedBox>
       {[-0.9, 0.9].map((x) =>
@@ -428,6 +468,7 @@ function SceneHud({
     { id: 'overview', label: 'Overview' },
     { id: 'top', label: 'Top-down' },
     { id: 'follow', label: 'Follow job', disabled: !hasFollow },
+    { id: 'showroom', label: 'Showroom' },
   ];
 
   return (
